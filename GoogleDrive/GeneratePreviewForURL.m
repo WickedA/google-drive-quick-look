@@ -1,28 +1,58 @@
-#include <CoreFoundation/CoreFoundation.h>
-#include <CoreServices/CoreServices.h>
-#include <QuickLook/QuickLook.h>
+@import Cocoa;
+@import CoreFoundation;
+@import CoreServices;
+@import QuickLook;
 
-#import <Cocoa/Cocoa.h>
+// This function is responsible for generating a preview of some sort (image, HTML, etc.) and
+// sending it over to the Quick Look client.
+// The main things it receives that we care about are the preview request reference/handle and the
+// JSON link file's URL.
 
-OSStatus GeneratePreviewForURL(void *thisInterface, QLPreviewRequestRef preview, CFURLRef url, CFStringRef contentTypeUTI, CFDictionaryRef options);
-void CancelPreviewGeneration(void *thisInterface, QLPreviewRequestRef preview);
-
-/* -----------------------------------------------------------------------------
-   Generate a preview for file
-
-   This function's job is to create preview for designated file
-   ----------------------------------------------------------------------------- */
-
-OSStatus GeneratePreviewForURL(void *thisInterface, QLPreviewRequestRef preview, CFURLRef url, CFStringRef contentTypeUTI, CFDictionaryRef options)
-{
-    NSString *_content = [NSString stringWithContentsOfURL:(__bridge  NSURL *)url encoding:NSUTF8StringEncoding error:nil];
+OSStatus GeneratePreviewForURL(
+    void*               thisInterface,
+    QLPreviewRequestRef previewRequest,
+    CFURLRef            linkURL,
+    CFStringRef         linkUTI,
+    CFDictionaryRef     options
+){
+    // Read the link file into a string:
+    NSString* linkContents = [NSString
+        stringWithContentsOfURL:(__bridge NSURL *)(linkURL)
+        encoding:NSUTF8StringEncoding
+        error:NULL];
     
-    QLPreviewRequestSetDataRepresentation(preview,(__bridge CFDataRef)[_content dataUsingEncoding:NSUTF8StringEncoding],kUTTypePlainText,NULL);
-    // To complete your generator please implement the function GeneratePreviewForURL in GeneratePreviewForURL.c
+    // Use some ugly string manipulation to grab the document URL:
+    NSString*  urlStart       = @"\"url\": ";
+    NSString*  urlEnd         = @"\",";
+    NSRange    urlStartRange  = [linkContents rangeOfString:urlStart];
+    NSUInteger urlStartOffset = urlStartRange.location + urlStart.length;
+    NSString*  urlSearchSpace = [linkContents substringFromIndex:urlStartOffset];
+    NSRange    urlEndRange    = [urlSearchSpace rangeOfString:urlEnd];
+    NSString*  url            = [urlSearchSpace substringToIndex:urlEndRange.location];
+    
+    // Construct the container page:
+    NSString* html = [NSString stringWithFormat:
+        // Template:
+        @"<!DOCTYPE html>"
+        "<html><head>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+        "<style>body, html { margin: 0; padding: 0; height: 100%%; overflow: hidden; }</style>"
+        "<style>#content { position: absolute; left: 0; right: 0; bottom: 0; top: 0px; }</style>"
+        "</head><body><div id='content'>"
+        "<iframe src='%@' width='100%%' height='100%%'>"
+        "</div></body></html>",
+        // Substitution:
+        url
+    ];
+    
+    // Convert the NSString to a CFDataRef and ship it over to the client:
+    CFDataRef htmlDataRef = (__bridge CFDataRef)([html dataUsingEncoding:NSUTF8StringEncoding]);
+    QLPreviewRequestSetDataRepresentation(previewRequest, htmlDataRef, kUTTypeHTML, NULL);
+    
+    // We should probably do some error handling here eventually.
     return noErr;
 }
 
-void CancelPreviewGeneration(void *thisInterface, QLPreviewRequestRef preview)
-{
-    // Implement only if supported
-}
+
+// Stub for CancelPreviewGeneration, which we don't support.
+void CancelPreviewGeneration(void *thisInterface, QLPreviewRequestRef preview);
